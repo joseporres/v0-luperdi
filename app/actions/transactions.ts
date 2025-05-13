@@ -256,3 +256,79 @@ export async function updateTransactionStatus(id: string, status: string) {
     return { error: "An unexpected error occurred" }
   }
 }
+
+// Add the missing getAllTransactions function
+export async function getAllTransactions(
+  options: {
+    startDate?: string
+    endDate?: string
+    status?: string
+    limit?: number
+    offset?: number
+  } = {},
+) {
+  try {
+    const supabase = await getActionSupabaseClient()
+
+    // Check if user is authenticated
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    if (!session) {
+      return { data: [], count: 0, error: "You must be logged in to view all transactions" }
+    }
+
+    // In a real application, you would check if the user has admin privileges here
+    // For this demo, we'll just allow it
+
+    // Build the query
+    let query = supabase.from("transactions").select(
+      `
+        *,
+        products(*),
+        product_variants(*, sizes(*)),
+        profiles(first_name, last_name, email)
+      `,
+      { count: "exact" },
+    )
+
+    // Apply filters if provided
+    if (options.status) {
+      query = query.eq("status", options.status)
+    }
+
+    if (options.startDate) {
+      query = query.gte("created_at", options.startDate)
+    }
+
+    if (options.endDate) {
+      query = query.lte("created_at", options.endDate)
+    }
+
+    // Apply pagination
+    if (options.limit) {
+      query = query.limit(options.limit)
+    }
+
+    if (options.offset) {
+      query = query.range(options.offset, options.offset + (options.limit || 10) - 1)
+    }
+
+    // Order by created_at descending (newest first)
+    query = query.order("created_at", { ascending: false })
+
+    // Execute the query
+    const { data, error, count } = await query
+
+    if (error) {
+      console.error("Error fetching all transactions:", error)
+      return { data: [], count: 0, error: error.message }
+    }
+
+    return { data: data || [], count: count || 0, error: null }
+  } catch (error: any) {
+    console.error("Unexpected error fetching all transactions:", error)
+    return { data: [], count: 0, error: "An unexpected error occurred" }
+  }
+}
