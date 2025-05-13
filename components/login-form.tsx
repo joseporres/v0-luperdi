@@ -1,81 +1,103 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
-import { signIn } from "@/app/actions/auth"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { useRouter } from "next/navigation"
-import Link from "next/link"
+import { useToast } from "@/components/ui/use-toast"
+import { signIn } from "@/app/actions/auth"
 
-export function LoginForm() {
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+interface LoginFormProps {
+  redirectTo?: string
+}
+
+export function LoginForm({ redirectTo = "/" }: LoginFormProps) {
+  const [isLoading, setIsLoading] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const router = useRouter()
+  const { toast } = useToast()
 
-  async function handleSubmit(formData: FormData) {
-    setLoading(true)
-    setError(null)
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+    setErrorMessage(null)
 
     try {
+      const formData = new FormData(e.currentTarget)
+
+      // Log the form data for debugging
+      console.log("Login attempt with email:", formData.get("email"))
+
       const result = await signIn(formData)
 
-      if (result?.error) {
-        setError(result.error)
-        setLoading(false)
-      } else if (result?.success) {
-        // Redirect on success
-        router.refresh()
-        router.push("/")
+      if (result.error) {
+        console.log("Login failed with error:", result.error)
+        setErrorMessage(result.error)
+        toast({
+          title: "Login Failed",
+          description: result.error,
+          variant: "destructive",
+        })
+      } else {
+        console.log("Login successful")
+        toast({
+          title: "Success",
+          description: "You have been logged in successfully.",
+        })
+        router.push(redirectTo)
       }
-    } catch (err) {
-      console.error("Login error:", err)
-      setError("An unexpected error occurred. Please try again.")
-      setLoading(false)
+    } catch (error) {
+      console.error("Login error:", error)
+      setErrorMessage("An unexpected error occurred. Please try again.")
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className="w-full max-w-md mx-auto space-y-6">
-      <div className="text-center">
-        <h1 className="text-2xl font-bold">Sign In</h1>
-        <p className="text-sm text-muted-foreground mt-2">Enter your credentials to access your account</p>
-      </div>
-
-      {error && (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      {errorMessage && (
         <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription>{errorMessage}</AlertDescription>
         </Alert>
       )}
 
-      <form action={handleSubmit} className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="email">Email</Label>
-          <Input id="email" name="email" type="email" placeholder="your@email.com" required />
-        </div>
+      <div className="space-y-2">
+        <Label htmlFor="email">Email</Label>
+        <Input id="email" name="email" type="email" placeholder="name@example.com" required />
+      </div>
 
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label htmlFor="password">Password</Label>
-            <Link href="/forgot-password" className="text-sm text-primary hover:underline">
-              Forgot password?
-            </Link>
-          </div>
-          <Input id="password" name="password" type="password" required />
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">Password</Label>
+          <Link href="/forgot-password" className="text-xs text-neutral-500 hover:underline">
+            Forgot password?
+          </Link>
         </div>
+        <Input id="password" name="password" type="password" required />
+      </div>
 
-        <Button type="submit" className="w-full" disabled={loading}>
-          {loading ? "Signing in..." : "Sign In"}
-        </Button>
-      </form>
+      <Button type="submit" className="w-full" disabled={isLoading}>
+        {isLoading ? "Logging in..." : "Login"}
+      </Button>
 
       <div className="text-center text-sm">
-        Don&apos;t have an account?{" "}
-        <Link href="/signup" className="text-primary hover:underline">
+        <span className="text-neutral-500">Don't have an account? </span>
+        <Link href="/signup" className="text-blue-600 hover:underline">
           Sign up
         </Link>
       </div>
-    </div>
+    </form>
   )
 }

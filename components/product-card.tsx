@@ -8,8 +8,10 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
-  const isLowInventory = product.inventory_count > 0 && product.inventory_count <= 5
-  const isOutOfStock = product.inventory_count === 0
+  // Check if product has any variants with stock
+  const hasStock = product.has_stock
+  const isLowInventory = hasStock && product.inventory_count <= 5
+  const isOutOfStock = !hasStock
 
   return (
     <div className="group relative overflow-hidden rounded-lg">

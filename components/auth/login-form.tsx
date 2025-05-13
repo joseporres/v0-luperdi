@@ -18,10 +18,20 @@ export function LoginForm() {
     setLoading(true)
     setError(null)
 
-    const result = await signIn(formData)
+    try {
+      const result = await signIn(formData)
 
-    if (result?.error) {
-      setError(result.error)
+      if (result?.error) {
+        setError(result.error)
+        setLoading(false)
+      } else if (result?.success) {
+        // Redirect on success
+        router.refresh()
+        router.push("/")
+      }
+    } catch (err) {
+      console.error("Login error:", err)
+      setError("An unexpected error occurred. Please try again.")
       setLoading(false)
     }
   }

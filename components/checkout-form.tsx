@@ -161,7 +161,8 @@ export function CheckoutForm({ cart, profile }: CheckoutFormProps) {
           title: "Success",
           description: "Your order has been placed successfully!",
         })
-        router.push("/account/orders")
+        // Redirect to the order confirmation page instead of the orders page
+        router.push(`/order-confirmation/${result.transactionId}`)
       }
     } catch (error) {
       console.error("Checkout error:", error)

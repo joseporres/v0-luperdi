@@ -1,8 +1,8 @@
 "use client"
 
 import type React from "react"
+
 import { useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -18,10 +18,6 @@ type Profile = {
 }
 
 export function ProfileForm({ profile }: { profile: Profile }) {
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const redirectUrl = searchParams.get("redirect")
-
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -53,13 +49,6 @@ export function ProfileForm({ profile }: { profile: Profile }) {
       }
 
       setSuccess("Profile updated successfully")
-
-      // If there's a redirect URL, navigate there after a short delay
-      if (redirectUrl) {
-        setTimeout(() => {
-          router.push(redirectUrl)
-        }, 1000) // Short delay to show success message
-      }
     } catch (err: any) {
       setError(err.message || "An error occurred while updating your profile")
     } finally {
@@ -70,10 +59,8 @@ export function ProfileForm({ profile }: { profile: Profile }) {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold">Your Profile</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          {redirectUrl ? "Please complete your profile to continue" : "Update your personal information"}
-        </p>
+        <h2 className="text-xl font-semibold">Personal Information</h2>
+        <p className="text-sm text-muted-foreground mt-1">Update your personal information</p>
       </div>
 
       {error && (
@@ -84,10 +71,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
 
       {success && (
         <Alert>
-          <AlertDescription>
-            {success}
-            {redirectUrl && " Redirecting you to continue..."}
-          </AlertDescription>
+          <AlertDescription>{success}</AlertDescription>
         </Alert>
       )}
 
@@ -98,37 +82,31 @@ export function ProfileForm({ profile }: { profile: Profile }) {
           <p className="text-xs text-muted-foreground">Email cannot be changed</p>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="first_name">First Name</Label>
-          <Input
-            id="first_name"
-            value={formData.first_name}
-            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-            required
-          />
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <Label htmlFor="first_name">First Name</Label>
+            <Input
+              id="first_name"
+              value={formData.first_name}
+              onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+              required
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="last_name">Last Name</Label>
+            <Input
+              id="last_name"
+              value={formData.last_name}
+              onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+              required
+            />
+          </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="last_name">Last Name</Label>
-          <Input
-            id="last_name"
-            value={formData.last_name}
-            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-            required
-          />
-        </div>
-
-        <div className="flex gap-4">
-          <Button type="submit" disabled={loading}>
-            {loading ? "Saving..." : "Save Changes"}
-          </Button>
-
-          {redirectUrl && (
-            <Button type="button" variant="outline" onClick={() => router.push(redirectUrl)}>
-              Skip & Continue
-            </Button>
-          )}
-        </div>
+        <Button type="submit" disabled={loading}>
+          {loading ? "Saving..." : "Save Changes"}
+        </Button>
       </form>
     </div>
   )

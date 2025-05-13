@@ -28,33 +28,59 @@ export async function getCollections() {
 
 // Get collection by slug with products
 export async function getCollectionBySlug(slug: string) {
-  const supabase = createServerActionClient<Database>({ cookies })
+  try {
+    const supabase = createServerActionClient<Database>({ cookies })
 
-  // First get the collection
-  const { data: collection, error: collectionError } = await supabase
-    .from("collections")
-    .select("*")
-    .eq("slug", slug)
-    .single()
+    // Get collection
+    const { data: collection, error: collectionError } = await supabase
+      .from("collections")
+      .select("*")
+      .eq("slug", slug)
+      .single()
 
-  if (collectionError || !collection) {
-    console.error("Error fetching collection:", collectionError)
+    if (collectionError || !collection) {
+      console.error("Error fetching collection:", JSON.stringify(collectionError))
+      return null
+    }
+
+    // Get products in collection with their variants
+    const { data: products, error: productsError } = await supabase
+      .from("products")
+      .select(`
+        *,
+        product_variants(
+          id,
+          inventory_count,
+          sizes(id, name, display_order)
+        )
+      `)
+      .eq("collection_id", collection.id)
+      .eq("is_available", true)
+      .order("created_at", { ascending: false })
+
+    if (productsError) {
+      console.error("Error fetching products for collection:", JSON.stringify(productsError))
+      return { ...collection, products: [] }
+    }
+
+    // Calculate total inventory and process product data
+    const processedProducts =
+      products?.map((product) => {
+        const variants = product.product_variants || []
+        const totalInventory = variants.reduce((sum, variant) => sum + (variant.inventory_count || 0), 0)
+
+        return {
+          ...product,
+          inventory_count: totalInventory,
+          has_stock: totalInventory > 0,
+        }
+      }) || []
+
+    return { ...collection, products: processedProducts }
+  } catch (error) {
+    console.error("Exception in getCollectionBySlug:", error instanceof Error ? error.message : String(error))
     return null
   }
-
-  // Then get the products in this collection
-  const { data: products, error: productsError } = await supabase
-    .from("products")
-    .select("*")
-    .eq("collection_id", collection.id)
-    .eq("is_available", true)
-
-  if (productsError) {
-    console.error("Error fetching collection products:", productsError)
-    return { ...collection, products: [] }
-  }
-
-  return { ...collection, products: products || [] }
 }
 
 // Get permanent collection

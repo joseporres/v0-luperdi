@@ -20,9 +20,17 @@ export async function getProducts() {
     console.log("Fetching products...")
     const supabase = await getActionSupabaseClient()
 
+    // Get all products with their variants and sizes
     const { data, error } = await supabase
       .from("products")
-      .select("*")
+      .select(`
+        *,
+        product_variants(
+          id,
+          inventory_count,
+          sizes(id, name, display_order)
+        )
+      `)
       .eq("is_available", true)
       .order("created_at", { ascending: false })
 
@@ -31,8 +39,21 @@ export async function getProducts() {
       return []
     }
 
-    console.log(`Successfully fetched ${data?.length || 0} products`)
-    return data || []
+    // Calculate total inventory and process product data
+    const processedProducts =
+      data?.map((product) => {
+        const variants = product.product_variants || []
+        const totalInventory = variants.reduce((sum, variant) => sum + (variant.inventory_count || 0), 0)
+
+        return {
+          ...product,
+          inventory_count: totalInventory,
+          has_stock: totalInventory > 0,
+        }
+      }) || []
+
+    console.log(`Successfully fetched ${processedProducts?.length || 0} products`)
+    return processedProducts
   } catch (error) {
     console.error("Exception in getProducts:", error instanceof Error ? error.message : String(error))
     console.error("Error stack:", error instanceof Error ? error.stack : "No stack trace available")
