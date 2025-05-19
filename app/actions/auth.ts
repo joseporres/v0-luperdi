@@ -189,24 +189,3 @@ export async function getUserDetails() {
     return null
   }
 }
-
-// Check if the current user is an admin
-export async function isAdmin() {
-  try {
-    const supabase = await getActionSupabaseClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    if (!session) {
-      return false
-    }
-
-    // In a real app, you would check a role or a specific field in the user's profile
-    // For this demo, we'll just return true if the user is authenticated
-    return true
-  } catch (error) {
-    console.error("Error checking admin status:", error)
-    return false
-  }
-}
