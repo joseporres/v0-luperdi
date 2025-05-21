@@ -4,267 +4,151 @@ import { cookies } from "next/headers"
 import { createServerActionClient } from "@supabase/auth-helpers-nextjs"
 import type { Database } from "@/lib/supabase/database.types"
 
-export type Collection = Database["public"]["Tables"]["collections"]["Row"]
-export type CollectionWithProducts = Collection & { products: Product[] }
-export type Product = Database["public"]["Tables"]["products"]["Row"]
-
-// Get all collections (only enabled ones for regular users)
-export async function getCollections() {
-  const supabase = createServerActionClient<Database>({ cookies })
-
-  const { data, error } = await supabase
-    .from("collections")
-    .select("*")
-    .eq("enabled", true) // Only get enabled collections
-    .order("is_permanent", { ascending: false })
-    .order("release_date", { ascending: false })
-
-  if (error) {
-    console.error("Error fetching collections:", error)
-    return []
-  }
-
-  return data
+// Helper function to get Supabase client with proper cookie handling
+async function getActionSupabaseClient() {
+  const cookieStore = cookies()
+  return createServerActionClient<Database>({ cookies: () => cookieStore })
 }
 
-// Get collection by slug with products (only if enabled)
-export async function getCollectionBySlug(slug: string) {
-  try {
-    const supabase = createServerActionClient<Database>({ cookies })
+export type Collection = {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  is_permanent: boolean
+  release_date: string | null
+  end_date: string | null
+  enabled: boolean
+  created_at: string
+  updated_at: string
+}
 
-    // Get collection
-    const { data: collection, error: collectionError } = await supabase
+export async function getCollections() {
+  try {
+    const supabase = await getActionSupabaseClient()
+
+    const { data, error } = await supabase
       .from("collections")
       .select("*")
+      .eq("enabled", true)
+      .order("is_permanent", { ascending: false })
+      .order("release_date", { ascending: false })
+
+    if (error) {
+      console.error("Error fetching collections:", error)
+      return []
+    }
+
+    return data as Collection[]
+  } catch (error) {
+    console.error("Unexpected error fetching collections:", error)
+    return []
+  }
+}
+
+export async function getCollectionBySlug(slug: string) {
+  try {
+    const supabase = await getActionSupabaseClient()
+
+    const { data, error } = await supabase
+      .from("collections")
+      .select(
+        `
+        *,
+        products(
+          *,
+          product_variants(
+            id,
+            inventory_count,
+            sizes(id, name)
+          )
+        )
+      `,
+      )
       .eq("slug", slug)
-      .eq("enabled", true) // Only get enabled collections
+      .eq("enabled", true)
       .single()
 
-    if (collectionError || !collection) {
-      console.error("Error fetching collection:", JSON.stringify(collectionError))
+    if (error) {
+      console.error(`Error fetching collection with slug ${slug}:`, error)
       return null
     }
 
-    // Get products in collection with their variants
-    const { data: products, error: productsError } = await supabase
-      .from("products")
-      .select(`
-        *,
-        product_variants(
-          id,
-          inventory_count,
-          sizes(id, name, display_order)
-        )
-      `)
-      .eq("collection_id", collection.id)
-      .eq("is_available", true)
-      .order("created_at", { ascending: false })
+    return data
+  } catch (error) {
+    console.error(`Unexpected error fetching collection with slug ${slug}:`, error)
+    return null
+  }
+}
 
-    if (productsError) {
-      console.error("Error fetching products for collection:", JSON.stringify(productsError))
-      return { ...collection, products: [] }
+export async function getPermanentCollection() {
+  try {
+    const supabase = await getActionSupabaseClient()
+
+    const { data, error } = await supabase
+      .from("collections")
+      .select(
+        `
+        *,
+        products(
+          *,
+          product_variants(
+            id,
+            inventory_count,
+            sizes(id, name)
+          )
+        )
+      `,
+      )
+      .eq("is_permanent", true)
+      .eq("enabled", true)
+      .single()
+
+    if (error) {
+      console.error("Error fetching permanent collection:", error)
+      return null
     }
 
-    // Calculate total inventory and process product data
-    const processedProducts =
-      products?.map((product) => {
-        const variants = product.product_variants || []
-        const totalInventory = variants.reduce((sum, variant) => sum + (variant.inventory_count || 0), 0)
-
-        return {
-          ...product,
-          inventory_count: totalInventory,
-          has_stock: totalInventory > 0,
-        }
-      }) || []
-
-    return { ...collection, products: processedProducts }
+    return data
   } catch (error) {
-    console.error("Exception in getCollectionBySlug:", error instanceof Error ? error.message : String(error))
+    console.error("Unexpected error fetching permanent collection:", error)
     return null
   }
 }
 
-// Get permanent collection (only if enabled)
-export async function getPermanentCollection() {
-  const supabase = createServerActionClient<Database>({ cookies })
-
-  const { data, error } = await supabase
-    .from("collections")
-    .select("*")
-    .eq("is_permanent", true)
-    .eq("enabled", true) // Only get enabled collections
-    .single()
-
-  if (error) {
-    console.error("Error fetching permanent collection:", error)
-    return null
-  }
-
-  return data
-}
-
-// Get current collections (permanent + active limited collections, only enabled ones)
 export async function getCurrentCollections() {
-  const supabase = createServerActionClient<Database>({ cookies })
-  const now = new Date().toISOString()
+  try {
+    const supabase = await getActionSupabaseClient()
+    const now = new Date().toISOString()
 
-  const { data, error } = await supabase
-    .from("collections")
-    .select("*")
-    .eq("enabled", true) // Only get enabled collections
-    .or(`is_permanent.eq.true,and(release_date.lte.${now},or(end_date.gte.${now},end_date.is.null))`)
-    .order("is_permanent", { ascending: false })
-    .order("release_date", { ascending: false })
+    const { data, error } = await supabase
+      .from("collections")
+      .select(
+        `
+        *,
+        products(
+          *,
+          product_variants(
+            id,
+            inventory_count,
+            sizes(id, name)
+          )
+        )
+      `,
+      )
+      .eq("enabled", true)
+      .or(`is_permanent.eq.true,and(release_date.lte.${now},or(end_date.gte.${now},end_date.is.null))`)
+      .order("is_permanent", { ascending: false })
+      .order("release_date", { ascending: false })
 
-  if (error) {
-    console.error("Error fetching current collections:", error)
+    if (error) {
+      console.error("Error fetching current collections:", error)
+      return []
+    }
+
+    return data
+  } catch (error) {
+    console.error("Unexpected error fetching current collections:", error)
     return []
   }
-
-  return data
-}
-
-// Create a new collection (admin only)
-export async function createCollection(formData: FormData) {
-  const supabase = createServerActionClient<Database>({ cookies })
-
-  // Check if user is admin
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session?.user) {
-    return { error: "Not authenticated" }
-  }
-
-  // Get form data
-  const name = formData.get("name") as string
-  const slug = formData.get("slug") as string
-  const description = formData.get("description") as string
-  const isPermanent = formData.get("is_permanent") === "true"
-  const releaseDate = formData.get("release_date") as string
-  const endDate = formData.get("end_date") as string
-  // Default enabled to false as requested
-  const enabled = false
-
-  // Validate required fields
-  if (!name || !slug) {
-    return { error: "Name and slug are required" }
-  }
-
-  // Insert collection
-  const { data, error } = await supabase.from("collections").insert({
-    name,
-    slug,
-    description,
-    is_permanent: isPermanent,
-    release_date: releaseDate || null,
-    end_date: endDate || null,
-    enabled, // Set enabled status
-  })
-
-  if (error) {
-    console.error("Error creating collection:", error)
-    return { error: error.message }
-  }
-
-  return { success: true }
-}
-
-// Update a collection (admin only)
-export async function updateCollection(id: string, formData: FormData) {
-  const supabase = createServerActionClient<Database>({ cookies })
-
-  // Check if user is admin
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session?.user) {
-    return { error: "Not authenticated" }
-  }
-
-  // Get form data
-  const name = formData.get("name") as string
-  const slug = formData.get("slug") as string
-  const description = formData.get("description") as string
-  const isPermanent = formData.get("is_permanent") === "true"
-  const releaseDate = formData.get("release_date") as string
-  const endDate = formData.get("end_date") as string
-  const enabled = formData.get("enabled") === "true"
-
-  // Validate required fields
-  if (!name || !slug) {
-    return { error: "Name and slug are required" }
-  }
-
-  // Update collection
-  const { data, error } = await supabase
-    .from("collections")
-    .update({
-      name,
-      slug,
-      description,
-      is_permanent: isPermanent,
-      release_date: releaseDate || null,
-      end_date: endDate || null,
-      enabled, // Update enabled status
-    })
-    .eq("id", id)
-
-  if (error) {
-    console.error("Error updating collection:", error)
-    return { error: error.message }
-  }
-
-  return { success: true }
-}
-
-// Toggle collection enabled status
-export async function toggleCollectionEnabled(id: string, enabled: boolean) {
-  const supabase = createServerActionClient<Database>({ cookies })
-
-  // Check if user is admin
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session?.user) {
-    return { error: "Not authenticated" }
-  }
-
-  // Update collection enabled status
-  const { data, error } = await supabase.from("collections").update({ enabled }).eq("id", id)
-
-  if (error) {
-    console.error("Error updating collection enabled status:", error)
-    return { error: error.message }
-  }
-
-  return { success: true }
-}
-
-// Delete a collection (admin only)
-export async function deleteCollection(id: string) {
-  const supabase = createServerActionClient<Database>({ cookies })
-
-  // Check if user is admin
-  const {
-    data: { session },
-  } = await supabase.auth.getSession()
-
-  if (!session?.user) {
-    return { error: "Not authenticated" }
-  }
-
-  // Delete collection
-  const { error } = await supabase.from("collections").delete().eq("id", id)
-
-  if (error) {
-    console.error("Error deleting collection:", error)
-    return { error: error.message }
-  }
-
-  return { success: true }
 }

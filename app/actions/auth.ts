@@ -190,29 +190,7 @@ export async function getUserDetails() {
   }
 }
 
-// Add the missing isAdmin function
+// For compatibility with existing code that might import isAdmin
 export async function isAdmin() {
-  try {
-    const supabase = await getActionSupabaseClient()
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    if (!session) {
-      return false
-    }
-
-    // Check if the user's email is in the authorized admin emails
-    const authorizedEmails = process.env.AUTHORIZED_ADMIN_EMAILS?.split(",") || []
-
-    if (authorizedEmails.length === 0) {
-      // If no authorized emails are configured, no one is an admin
-      return false
-    }
-
-    return authorizedEmails.includes(session.user.email || "")
-  } catch (error) {
-    console.error("Error checking admin status:", error)
-    return false
-  }
+  return false
 }

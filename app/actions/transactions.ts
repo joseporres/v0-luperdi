@@ -317,8 +317,7 @@ export async function getUserTransactions() {
   }
 }
 
-// This function is needed for compatibility with existing code
-// but has been modified to only work with user's own transactions
+// For compatibility with existing code
 export async function getAllTransactions(filters = {}) {
   console.warn("getAllTransactions is deprecated and will be removed in a future version")
   try {
@@ -330,7 +329,7 @@ export async function getAllTransactions(filters = {}) {
   }
 }
 
-// Add the missing updateTransactionStatus function
+// For compatibility with existing code
 export async function updateTransactionStatus(id: string, status: string) {
   try {
     const supabase = await getActionSupabaseClient()
