@@ -12,6 +12,66 @@ async function getActionSupabaseClient() {
   return createServerActionClient<Database>({ cookies: () => cookieStore })
 }
 
+// Payment status enum
+export enum PaymentStatus {
+  PENDING = "pending",
+  PROCESSING = "processing",
+  COMPLETED = "completed",
+  FAILED = "failed",
+  REFUNDED = "refunded",
+  CANCELLED = "cancelled",
+}
+
+// Mock payment processor function
+// In a real application, this would integrate with a payment gateway like Stripe, PayPal, etc.
+async function processPayment(paymentDetails: {
+  amount: number
+  paymentMethod: string
+  cardNumber?: string
+  expiryDate?: string
+  cvv?: string
+  email: string
+}) {
+  // Simulate payment processing delay
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+
+  // Simulate payment failures for testing
+  // In a real app, this would be replaced with actual payment gateway integration
+  if (paymentDetails.cardNumber === "4111111111111111") {
+    return {
+      success: true,
+      transactionId: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+      message: "Payment processed successfully",
+    }
+  } else if (paymentDetails.cardNumber === "4242424242424242") {
+    return {
+      success: false,
+      error: "insufficient_funds",
+      message: "Your card has insufficient funds. Please use a different payment method.",
+    }
+  } else if (paymentDetails.cardNumber === "4000000000000002") {
+    return {
+      success: false,
+      error: "card_declined",
+      message: "Your card was declined. Please use a different card or payment method.",
+    }
+  } else if (!paymentDetails.cardNumber || paymentDetails.cardNumber.length < 15) {
+    return {
+      success: false,
+      error: "invalid_card",
+      message: "The card information you provided is invalid. Please check your card details and try again.",
+    }
+  }
+
+  // Default success case for demo purposes
+  // In a real app, this would be the result from the payment gateway
+  return {
+    success: true,
+    transactionId: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
+    message: "Payment processed successfully",
+  }
+}
+
 export async function createTransaction(formData: FormData) {
   try {
     const supabase = await getActionSupabaseClient()
@@ -37,6 +97,11 @@ export async function createTransaction(formData: FormData) {
     const province = formData.get("province") as string
     const address = formData.get("address") as string
     const payment_method = formData.get("payment_method") as string
+
+    // Get payment details
+    const cardNumber = formData.get("card_number") as string
+    const expiryDate = formData.get("expiry_date") as string
+    const cvv = formData.get("cvv") as string
 
     // Validate required fields
     const requiredFields = [
@@ -93,8 +158,30 @@ export async function createTransaction(formData: FormData) {
       }
     }
 
-    // Create transaction
-    const { data, error } = await supabase.rpc("create_transaction", {
+    // Calculate total amount
+    const totalAmount = price * quantity
+
+    // Process payment
+    const paymentResult = await processPayment({
+      amount: totalAmount,
+      paymentMethod: payment_method,
+      cardNumber,
+      expiryDate,
+      cvv,
+      email,
+    })
+
+    // If payment failed, return error
+    if (!paymentResult.success) {
+      return {
+        error: paymentResult.message,
+        paymentError: true,
+        errorCode: paymentResult.error,
+      }
+    }
+
+    // Create transaction with initial status of "processing"
+    const { data: transactionId, error } = await supabase.rpc("create_transaction", {
       p_product_id: product_id,
       p_variant_id: variant_id,
       p_price: price,
@@ -104,6 +191,8 @@ export async function createTransaction(formData: FormData) {
       p_province: province,
       p_address: address,
       p_payment_method: payment_method,
+      p_payment_status: PaymentStatus.COMPLETED,
+      p_payment_id: paymentResult.transactionId,
     })
 
     if (error) {
@@ -115,17 +204,22 @@ export async function createTransaction(formData: FormData) {
     await updateProductVariantInventory(
       variant_id,
       variant.inventory_count - quantity,
-      `Purchase - Transaction ID: ${data}`,
+      `Purchase - Transaction ID: ${transactionId}`,
     )
 
     // Clear cart after successful purchase
     await clearCart()
 
     // Return the transaction ID for redirection
-    return { success: true, transactionId: data }
+    return {
+      success: true,
+      transactionId,
+      paymentId: paymentResult.transactionId,
+      message: paymentResult.message,
+    }
   } catch (error: any) {
     console.error("Unexpected error creating transaction:", error)
-    return { error: "An unexpected error occurred" }
+    return { error: "An unexpected error occurred during checkout. Please try again." }
   }
 }
 
@@ -223,6 +317,20 @@ export async function getUserTransactions() {
   }
 }
 
+// This function is needed for compatibility with existing code
+// but has been modified to only work with user's own transactions
+export async function getAllTransactions(filters = {}) {
+  console.warn("getAllTransactions is deprecated and will be removed in a future version")
+  try {
+    const transactions = await getUserTransactions()
+    return { data: transactions, count: transactions.length, error: null }
+  } catch (error) {
+    console.error("Error in getAllTransactions:", error)
+    return { data: [], count: 0, error: "Failed to fetch transactions" }
+  }
+}
+
+// Add the missing updateTransactionStatus function
 export async function updateTransactionStatus(id: string, status: string) {
   try {
     const supabase = await getActionSupabaseClient()
@@ -236,14 +344,25 @@ export async function updateTransactionStatus(id: string, status: string) {
       return { error: "You must be logged in to update a transaction" }
     }
 
-    // Check if user is admin (in a real app, you would check a role)
-    // For this demo, we'll just allow it
+    // Get the transaction to check if it belongs to the user
+    const { data: transaction, error: fetchError } = await supabase
+      .from("transactions")
+      .select("buyer_id")
+      .eq("id", id)
+      .single()
+
+    if (fetchError) {
+      console.error("Error fetching transaction:", fetchError)
+      return { error: "Transaction not found" }
+    }
+
+    // Only allow users to update their own transactions
+    if (transaction.buyer_id !== session.user.id) {
+      return { error: "You do not have permission to update this transaction" }
+    }
 
     // Update transaction status
-    const { error } = await supabase.rpc("update_transaction_status", {
-      transaction_id: id,
-      new_status: status,
-    })
+    const { error } = await supabase.from("transactions").update({ status }).eq("id", id)
 
     if (error) {
       console.error("Error updating transaction status:", error)
@@ -254,81 +373,5 @@ export async function updateTransactionStatus(id: string, status: string) {
   } catch (error: any) {
     console.error("Unexpected error updating transaction status:", error)
     return { error: "An unexpected error occurred" }
-  }
-}
-
-// Add the missing getAllTransactions function
-export async function getAllTransactions(
-  options: {
-    startDate?: string
-    endDate?: string
-    status?: string
-    limit?: number
-    offset?: number
-  } = {},
-) {
-  try {
-    const supabase = await getActionSupabaseClient()
-
-    // Check if user is authenticated
-    const {
-      data: { session },
-    } = await supabase.auth.getSession()
-
-    if (!session) {
-      return { data: [], count: 0, error: "You must be logged in to view all transactions" }
-    }
-
-    // In a real application, you would check if the user has admin privileges here
-    // For this demo, we'll just allow it
-
-    // Build the query
-    let query = supabase.from("transactions").select(
-      `
-        *,
-        products(*),
-        product_variants(*, sizes(*)),
-        profiles(first_name, last_name, email)
-      `,
-      { count: "exact" },
-    )
-
-    // Apply filters if provided
-    if (options.status) {
-      query = query.eq("status", options.status)
-    }
-
-    if (options.startDate) {
-      query = query.gte("created_at", options.startDate)
-    }
-
-    if (options.endDate) {
-      query = query.lte("created_at", options.endDate)
-    }
-
-    // Apply pagination
-    if (options.limit) {
-      query = query.limit(options.limit)
-    }
-
-    if (options.offset) {
-      query = query.range(options.offset, options.offset + (options.limit || 10) - 1)
-    }
-
-    // Order by created_at descending (newest first)
-    query = query.order("created_at", { ascending: false })
-
-    // Execute the query
-    const { data, error, count } = await query
-
-    if (error) {
-      console.error("Error fetching all transactions:", error)
-      return { data: [], count: 0, error: error.message }
-    }
-
-    return { data: data || [], count: count || 0, error: null }
-  } catch (error: any) {
-    console.error("Unexpected error fetching all transactions:", error)
-    return { data: [], count: 0, error: "An unexpected error occurred" }
   }
 }

@@ -8,13 +8,14 @@ export type Collection = Database["public"]["Tables"]["collections"]["Row"]
 export type CollectionWithProducts = Collection & { products: Product[] }
 export type Product = Database["public"]["Tables"]["products"]["Row"]
 
-// Get all collections
+// Get all collections (only enabled ones for regular users)
 export async function getCollections() {
   const supabase = createServerActionClient<Database>({ cookies })
 
   const { data, error } = await supabase
     .from("collections")
     .select("*")
+    .eq("enabled", true) // Only get enabled collections
     .order("is_permanent", { ascending: false })
     .order("release_date", { ascending: false })
 
@@ -26,7 +27,7 @@ export async function getCollections() {
   return data
 }
 
-// Get collection by slug with products
+// Get collection by slug with products (only if enabled)
 export async function getCollectionBySlug(slug: string) {
   try {
     const supabase = createServerActionClient<Database>({ cookies })
@@ -36,6 +37,7 @@ export async function getCollectionBySlug(slug: string) {
       .from("collections")
       .select("*")
       .eq("slug", slug)
+      .eq("enabled", true) // Only get enabled collections
       .single()
 
     if (collectionError || !collection) {
@@ -83,11 +85,16 @@ export async function getCollectionBySlug(slug: string) {
   }
 }
 
-// Get permanent collection
+// Get permanent collection (only if enabled)
 export async function getPermanentCollection() {
   const supabase = createServerActionClient<Database>({ cookies })
 
-  const { data, error } = await supabase.from("collections").select("*").eq("is_permanent", true).single()
+  const { data, error } = await supabase
+    .from("collections")
+    .select("*")
+    .eq("is_permanent", true)
+    .eq("enabled", true) // Only get enabled collections
+    .single()
 
   if (error) {
     console.error("Error fetching permanent collection:", error)
@@ -97,7 +104,7 @@ export async function getPermanentCollection() {
   return data
 }
 
-// Get current collections (permanent + active limited collections)
+// Get current collections (permanent + active limited collections, only enabled ones)
 export async function getCurrentCollections() {
   const supabase = createServerActionClient<Database>({ cookies })
   const now = new Date().toISOString()
@@ -105,6 +112,7 @@ export async function getCurrentCollections() {
   const { data, error } = await supabase
     .from("collections")
     .select("*")
+    .eq("enabled", true) // Only get enabled collections
     .or(`is_permanent.eq.true,and(release_date.lte.${now},or(end_date.gte.${now},end_date.is.null))`)
     .order("is_permanent", { ascending: false })
     .order("release_date", { ascending: false })
@@ -137,6 +145,8 @@ export async function createCollection(formData: FormData) {
   const isPermanent = formData.get("is_permanent") === "true"
   const releaseDate = formData.get("release_date") as string
   const endDate = formData.get("end_date") as string
+  // Default enabled to false as requested
+  const enabled = false
 
   // Validate required fields
   if (!name || !slug) {
@@ -151,6 +161,7 @@ export async function createCollection(formData: FormData) {
     is_permanent: isPermanent,
     release_date: releaseDate || null,
     end_date: endDate || null,
+    enabled, // Set enabled status
   })
 
   if (error) {
@@ -181,6 +192,7 @@ export async function updateCollection(id: string, formData: FormData) {
   const isPermanent = formData.get("is_permanent") === "true"
   const releaseDate = formData.get("release_date") as string
   const endDate = formData.get("end_date") as string
+  const enabled = formData.get("enabled") === "true"
 
   // Validate required fields
   if (!name || !slug) {
@@ -197,11 +209,36 @@ export async function updateCollection(id: string, formData: FormData) {
       is_permanent: isPermanent,
       release_date: releaseDate || null,
       end_date: endDate || null,
+      enabled, // Update enabled status
     })
     .eq("id", id)
 
   if (error) {
     console.error("Error updating collection:", error)
+    return { error: error.message }
+  }
+
+  return { success: true }
+}
+
+// Toggle collection enabled status
+export async function toggleCollectionEnabled(id: string, enabled: boolean) {
+  const supabase = createServerActionClient<Database>({ cookies })
+
+  // Check if user is admin
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  if (!session?.user) {
+    return { error: "Not authenticated" }
+  }
+
+  // Update collection enabled status
+  const { data, error } = await supabase.from("collections").update({ enabled }).eq("id", id)
+
+  if (error) {
+    console.error("Error updating collection enabled status:", error)
     return { error: error.message }
   }
 

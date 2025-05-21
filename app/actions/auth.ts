@@ -190,7 +190,7 @@ export async function getUserDetails() {
   }
 }
 
-// Check if the current user is an admin
+// Add the missing isAdmin function
 export async function isAdmin() {
   try {
     const supabase = await getActionSupabaseClient()
@@ -202,9 +202,15 @@ export async function isAdmin() {
       return false
     }
 
-    // In a real app, you would check a role or a specific field in the user's profile
-    // For this demo, we'll just return true if the user is authenticated
-    return true
+    // Check if the user's email is in the authorized admin emails
+    const authorizedEmails = process.env.AUTHORIZED_ADMIN_EMAILS?.split(",") || []
+
+    if (authorizedEmails.length === 0) {
+      // If no authorized emails are configured, no one is an admin
+      return false
+    }
+
+    return authorizedEmails.includes(session.user.email || "")
   } catch (error) {
     console.error("Error checking admin status:", error)
     return false

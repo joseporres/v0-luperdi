@@ -23,13 +23,23 @@ export async function getCart(): Promise<CartItem[]> {
     // Make sure to await the cookies().get() call
     const cart = await cookieStore.get("cart")
 
-    if (!cart) {
+    if (!cart || !cart.value || cart.value.trim() === "") {
       return []
     }
 
-    return JSON.parse(cart.value) as CartItem[]
+    try {
+      return JSON.parse(cart.value) as CartItem[]
+    } catch (parseError) {
+      console.error("Invalid cart data, resetting cart:", parseError)
+      // Reset the cart cookie if it contains invalid JSON
+      await cookieStore.set("cart", "[]", {
+        maxAge: 60 * 60 * 24 * 7, // 1 week
+        path: "/",
+      })
+      return []
+    }
   } catch (error) {
-    console.error("Error parsing cart:", error)
+    console.error("Error accessing cart:", error)
     return []
   }
 }
@@ -168,7 +178,10 @@ export async function removeFromCart(itemId: string) {
 export async function clearCart() {
   try {
     const cookieStore = cookies()
-    await cookieStore.set("cart", "", { maxAge: 0, path: "/" })
+    await cookieStore.set("cart", "[]", {
+      maxAge: 60 * 60 * 24 * 7, // 1 week
+      path: "/",
+    })
     return { success: true }
   } catch (error) {
     console.error("Error clearing cart:", error)

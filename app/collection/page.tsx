@@ -10,6 +10,26 @@ export default async function CollectionPage() {
   // Get unique categories
   const categories = Array.from(new Set(products.map((product) => product.category)))
 
+  if (categories.length === 0) {
+    return (
+      <div className="flex flex-col min-h-screen">
+        <SiteHeader />
+        <main className="flex-1">
+          <div className="container mx-auto px-4 py-8">
+            <h1 className="text-3xl font-bold mb-8">Collections</h1>
+            <div className="text-center py-12">
+              <h2 className="text-xl font-medium text-neutral-600 dark:text-neutral-400">
+                No collections are currently available
+              </h2>
+              <p className="mt-2 text-neutral-500 dark:text-neutral-500">Please check back later for new collections</p>
+            </div>
+          </div>
+        </main>
+        <SiteFooter />
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col min-h-screen">
       <SiteHeader />
@@ -29,7 +49,7 @@ export default async function CollectionPage() {
                   </Link>
                   <div className="aspect-[3/2] w-full overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800">
                     <Image
-                      src={featuredProduct?.image_url || "/placeholder.svg?height=400&width=600"}
+                      src={featuredProduct?.image_url || "/placeholder.png?height=400&width=600"}
                       alt={category}
                       width={600}
                       height={400}

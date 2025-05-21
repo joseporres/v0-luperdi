@@ -12,6 +12,7 @@ import { ExclamationTriangleIcon } from "@radix-ui/react-icons"
 import type { Database } from "@/lib/supabase/database.types"
 
 export default async function CheckoutPage() {
+  // Initialize Supabase client
   const supabase = createServerComponentClient<Database>({ cookies })
 
   // Check if user is authenticated
@@ -24,20 +25,51 @@ export default async function CheckoutPage() {
     redirect("/login?redirect=/checkout")
   }
 
-  // Get cart items
-  const cart = await getCart()
-  const { total, itemCount } = await getCartTotals()
+  // Get cart items - with improved error handling
+  let cart = []
+  let cartTotals = { total: 0, itemCount: 0, subtotal: 0, shipping: 0 }
+
+  try {
+    cart = await getCart()
+    cartTotals = await getCartTotals()
+  } catch (error) {
+    console.error("Error fetching cart data:", error)
+    // Instead of redirecting, we'll show an empty cart
+    cart = []
+    cartTotals = { total: 0, itemCount: 0, subtotal: 0, shipping: 0 }
+  }
 
   // If cart is empty, redirect to cart page
-  if (itemCount === 0) {
+  // This needs to be outside the try/catch to avoid catching the redirect
+  if (cartTotals.itemCount === 0) {
     redirect("/cart")
   }
 
   // Validate stock levels for all cart items
-  const stockValidation = await validateCartStock()
+  let stockValidation = { valid: true, items: [] }
+  try {
+    stockValidation = await validateCartStock()
+  } catch (error) {
+    console.error("Error validating stock:", error)
+    // Continue with default values if there's an error
+  }
 
   // Get user profile
-  const { data: profile } = await supabase.from("profiles").select("*").eq("id", session.user.id).single()
+  let profile = null
+  try {
+    const { data: profileData, error: profileError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", session.user.id)
+      .single()
+
+    if (!profileError) {
+      profile = profileData
+    }
+  } catch (error) {
+    console.error("Error fetching profile:", error)
+    // Continue without profile data if there's an error
+  }
 
   return (
     <div className="flex flex-col min-h-screen">
