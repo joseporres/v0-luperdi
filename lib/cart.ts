@@ -1,18 +1,14 @@
-"use server"
-
 import { cookies } from "next/headers"
-import { createServerActionClient } from "@supabase/auth-helpers-nextjs"
-import type { Database } from "@/lib/supabase/database.types"
+import { getProductById } from "@/app/actions/products"
 
-// Define cart item type
+// Cart item type
 export type CartItem = {
-  id: string
   productId: string
-  variantId?: string
-  name: string
-  price: number
+  variantId: string
   quantity: number
-  imageUrl: string | null
+  name?: string
+  price?: number
+  image?: string
   size?: string
 }
 
@@ -20,157 +16,167 @@ export type CartItem = {
 export async function getCart(): Promise<CartItem[]> {
   try {
     const cookieStore = cookies()
-    // Make sure to await the cookies().get() call
-    const cart = await cookieStore.get("cart")
+    const cartCookie = cookieStore.get("cart")
 
-    if (!cart || !cart.value || cart.value.trim() === "") {
+    if (!cartCookie?.value) {
       return []
     }
 
-    try {
-      return JSON.parse(cart.value) as CartItem[]
-    } catch (parseError) {
-      console.error("Invalid cart data, resetting cart:", parseError)
-      // Reset the cart cookie if it contains invalid JSON
-      await cookieStore.set("cart", "[]", {
-        maxAge: 60 * 60 * 24 * 7, // 1 week
-        path: "/",
-      })
-      return []
-    }
+    // Parse cart items from cookie
+    const cartItems = JSON.parse(decodeURIComponent(cartCookie.value)) as CartItem[]
+
+    // Fetch product details for each cart item
+    const cartItemsWithDetails = await Promise.all(
+      cartItems.map(async (item) => {
+        try {
+          const product = await getProductById(item.productId)
+
+          if (!product) {
+            return item
+          }
+
+          // Find the variant
+          const variant = product.variants?.find((v) => v.id === item.variantId)
+
+          return {
+            ...item,
+            name: product.name,
+            price: product.price,
+            image: product.image_url,
+            size: variant?.sizes?.name,
+          }
+        } catch (error) {
+          console.error(`Error fetching details for product ${item.productId}:`, error)
+          return item
+        }
+      }),
+    )
+
+    return cartItemsWithDetails
   } catch (error) {
-    console.error("Error accessing cart:", error)
+    console.error("Error getting cart:", error)
     return []
   }
 }
 
+// Get cart totals (count and price)
+export async function getCartTotals() {
+  const cart = await getCart()
+
+  const count = cart.reduce((total, item) => total + item.quantity, 0)
+  const subtotal = cart.reduce((total, item) => total + (item.price || 0) * item.quantity, 0)
+
+  return { count, subtotal }
+}
+
 // Add item to cart
-export async function addToCart(productId: string, quantity = 1, variantId?: string) {
+export async function addToCart(productId: string, variantId: string, quantity: number) {
   try {
-    const supabase = createServerActionClient<Database>({ cookies })
+    const cookieStore = cookies()
+    const cartCookie = cookieStore.get("cart")
 
-    // Get product details
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .select("*")
-      .eq("id", productId)
-      .single()
+    // Get current cart or initialize empty array
+    const currentCart = cartCookie?.value ? JSON.parse(decodeURIComponent(cartCookie.value)) : []
 
-    if (productError || !product) {
-      console.error("Product not found:", productError)
-      return { error: "Product not found" }
-    }
-
-    let size = undefined
-    let price = product.price
-
-    // If variant is specified, get variant details
-    if (variantId) {
-      const { data: variant, error: variantError } = await supabase
-        .from("product_variants")
-        .select("*, sizes(name)")
-        .eq("id", variantId)
-        .single()
-
-      if (variantError) {
-        console.error("Variant not found:", variantError)
-        return { error: "Variant not found" }
-      }
-
-      // Check if variant is in stock
-      if (variant.inventory_count <= 0) {
-        return { error: "This variant is out of stock" }
-      }
-
-      // Use variant price if available, otherwise use product price
-      if (variant.price) {
-        price = variant.price
-      }
-
-      size = variant.sizes?.name
-    }
-
-    // Get current cart
-    const cart = await getCart()
-
-    // Check if product already in cart
-    const existingItemIndex = cart.findIndex(
-      (item) => item.productId === productId && (variantId ? item.variantId === variantId : !item.variantId),
+    // Check if item already exists in cart
+    const existingItemIndex = currentCart.findIndex(
+      (item: CartItem) => item.productId === productId && item.variantId === variantId,
     )
 
-    if (existingItemIndex > -1) {
-      // Update quantity if product already in cart
-      cart[existingItemIndex].quantity += quantity
+    if (existingItemIndex >= 0) {
+      // Update quantity if item exists
+      currentCart[existingItemIndex].quantity += quantity
     } else {
-      // Add new item to cart
-      cart.push({
-        id: crypto.randomUUID(),
+      // Add new item if it doesn't exist
+      currentCart.push({
         productId,
         variantId,
-        name: product.name,
-        price,
         quantity,
-        imageUrl: product.image_url,
-        size,
       })
     }
 
-    // Save cart to cookies
-    const cookieStore = cookies()
-    await cookieStore.set("cart", JSON.stringify(cart), {
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+    // Save updated cart to cookie
+    cookieStore.set("cart", encodeURIComponent(JSON.stringify(currentCart)), {
       path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      sameSite: "lax",
     })
 
-    return { success: true, cart }
+    return { success: true }
   } catch (error) {
     console.error("Error adding to cart:", error)
-    return { error: "Failed to add item to cart. Please try again." }
-  }
-}
-
-// Update cart item quantity
-export async function updateCartItem(itemId: string, quantity: number) {
-  try {
-    const cart = await getCart()
-
-    const updatedCart = cart.map((item) => {
-      if (item.id === itemId) {
-        return { ...item, quantity: Math.max(1, quantity) }
-      }
-      return item
-    })
-
-    const cookieStore = cookies()
-    await cookieStore.set("cart", JSON.stringify(updatedCart), {
-      maxAge: 60 * 60 * 24 * 7, // 1 week
-      path: "/",
-    })
-
-    return { success: true, cart: updatedCart }
-  } catch (error) {
-    console.error("Error updating cart item:", error)
-    return { error: "Failed to update cart item. Please try again." }
+    return { error: "Failed to add item to cart" }
   }
 }
 
 // Remove item from cart
-export async function removeFromCart(itemId: string) {
+export async function removeFromCart(productId: string, variantId: string) {
   try {
-    const cart = await getCart()
-
-    const updatedCart = cart.filter((item) => item.id !== itemId)
-
     const cookieStore = cookies()
-    await cookieStore.set("cart", JSON.stringify(updatedCart), {
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+    const cartCookie = cookieStore.get("cart")
+
+    if (!cartCookie?.value) {
+      return { success: true }
+    }
+
+    // Get current cart
+    const currentCart = JSON.parse(decodeURIComponent(cartCookie.value))
+
+    // Filter out the item to remove
+    const updatedCart = currentCart.filter(
+      (item: CartItem) => !(item.productId === productId && item.variantId === variantId),
+    )
+
+    // Save updated cart to cookie
+    cookieStore.set("cart", encodeURIComponent(JSON.stringify(updatedCart)), {
       path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      sameSite: "lax",
     })
 
-    return { success: true, cart: updatedCart }
+    return { success: true }
   } catch (error) {
     console.error("Error removing from cart:", error)
-    return { error: "Failed to remove item from cart. Please try again." }
+    return { error: "Failed to remove item from cart" }
+  }
+}
+
+// Update cart item quantity
+export async function updateCartItemQuantity(productId: string, variantId: string, quantity: number) {
+  try {
+    const cookieStore = cookies()
+    const cartCookie = cookieStore.get("cart")
+
+    if (!cartCookie?.value) {
+      return { success: false, error: "Cart is empty" }
+    }
+
+    // Get current cart
+    const currentCart = JSON.parse(decodeURIComponent(cartCookie.value))
+
+    // Find the item to update
+    const itemIndex = currentCart.findIndex(
+      (item: CartItem) => item.productId === productId && item.variantId === variantId,
+    )
+
+    if (itemIndex === -1) {
+      return { success: false, error: "Item not found in cart" }
+    }
+
+    // Update quantity
+    currentCart[itemIndex].quantity = quantity
+
+    // Save updated cart to cookie
+    cookieStore.set("cart", encodeURIComponent(JSON.stringify(currentCart)), {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      sameSite: "lax",
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error("Error updating cart item quantity:", error)
+    return { error: "Failed to update item quantity" }
   }
 }
 
@@ -178,39 +184,17 @@ export async function removeFromCart(itemId: string) {
 export async function clearCart() {
   try {
     const cookieStore = cookies()
-    await cookieStore.set("cart", "[]", {
-      maxAge: 60 * 60 * 24 * 7, // 1 week
+
+    // Remove cart cookie
+    cookieStore.set("cart", "", {
       path: "/",
+      maxAge: 0,
+      sameSite: "lax",
     })
+
     return { success: true }
   } catch (error) {
     console.error("Error clearing cart:", error)
-    return { error: "Failed to clear cart. Please try again." }
-  }
-}
-
-// Calculate cart totals
-export async function getCartTotals() {
-  try {
-    const cart = await getCart()
-
-    const subtotal = cart.reduce((total, item) => total + item.price * item.quantity, 0)
-    const shipping = subtotal > 0 ? 10 : 0 // Example shipping cost
-    const total = subtotal + shipping
-
-    return {
-      subtotal,
-      shipping,
-      total,
-      itemCount: cart.reduce((count, item) => count + item.quantity, 0),
-    }
-  } catch (error) {
-    console.error("Error calculating cart totals:", error)
-    return {
-      subtotal: 0,
-      shipping: 0,
-      total: 0,
-      itemCount: 0,
-    }
+    return { error: "Failed to clear cart" }
   }
 }

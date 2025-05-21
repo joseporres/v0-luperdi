@@ -10,7 +10,7 @@ export type Product = Database["public"]["Tables"]["products"]["Row"]
 
 // Get all collections (only enabled ones)
 export async function getCollections() {
-  const supabase = createServerActionClient<Database>({ cookies })
+  const supabase = await createServerActionClient<Database>({ cookies })
 
   const { data, error } = await supabase
     .from("collections")
@@ -30,7 +30,7 @@ export async function getCollections() {
 // Get collection by slug with products (only if enabled)
 export async function getCollectionBySlug(slug: string) {
   try {
-    const supabase = createServerActionClient<Database>({ cookies })
+    const supabase = await createServerActionClient<Database>({ cookies })
 
     // Get collection
     const { data: collection, error: collectionError } = await supabase
@@ -87,7 +87,7 @@ export async function getCollectionBySlug(slug: string) {
 
 // Get permanent collection (only if enabled)
 export async function getPermanentCollection() {
-  const supabase = createServerActionClient<Database>({ cookies })
+  const supabase = await createServerActionClient<Database>({ cookies })
 
   const { data, error } = await supabase
     .from("collections")
@@ -106,7 +106,7 @@ export async function getPermanentCollection() {
 
 // Get current collections (permanent + active limited collections, only enabled ones)
 export async function getCurrentCollections() {
-  const supabase = createServerActionClient<Database>({ cookies })
+  const supabase = await createServerActionClient<Database>({ cookies })
   const now = new Date().toISOString()
 
   const { data, error } = await supabase

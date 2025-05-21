@@ -1,89 +1,49 @@
-"use client"
+import { cookies } from "next/headers"
+import { createServerActionClient } from "@supabase/auth-helpers-nextjs"
+import type { Database } from "@/lib/supabase/database.types"
 
-import { getSupabaseClient } from "./client"
+// Helper function to get Supabase client with proper cookie handling
+export async function getActionSupabaseClient() {
+  const cookieStore = cookies()
+  return createServerActionClient<Database>({ cookies: () => cookieStore })
+}
 
-/**
- * Clears all Supabase-related cookies and local storage items
- * This can help resolve JWT signature issues by forcing a fresh authentication state
- */
-export async function clearSupabaseAuth() {
+// Check if user is authenticated
+export async function isAuthenticated() {
   try {
-    const supabase = getSupabaseClient()
-
-    // Sign out to clear server-side session
-    await supabase.auth.signOut()
-
-    // Clear all cookies
-    document.cookie.split(";").forEach((cookie) => {
-      const [name] = cookie.trim().split("=")
-      document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`
-    })
-
-    // Clear local storage items related to Supabase
-    Object.keys(localStorage).forEach((key) => {
-      if (key.includes("supabase") || key.includes("sb-")) {
-        localStorage.removeItem(key)
-      }
-    })
-
-    console.log("Supabase auth data cleared successfully")
-    return { success: true }
+    const supabase = await getActionSupabaseClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+    return !!session
   } catch (error) {
-    console.error("Error clearing Supabase auth data:", error)
-    return { success: false, error }
+    console.error("Error checking authentication:", error)
+    return false
   }
 }
 
-/**
- * Tests the Supabase connection and authentication
- * Returns detailed information about any issues encountered
- */
-export async function testSupabaseConnection() {
+// Check if user is admin
+export async function isAdmin() {
   try {
-    const supabase = getSupabaseClient()
+    // Get admin emails from environment variable
+    const adminEmails = process.env.AUTHORIZED_ADMIN_EMAILS?.split(",") || []
 
-    // Test basic connection
-    console.log("Testing Supabase connection...")
-    const { data: connectionData, error: connectionError } = await supabase.from("products").select("count").limit(1)
-
-    if (connectionError) {
-      console.error("Connection test failed:", connectionError)
-      return {
-        success: false,
-        error: connectionError,
-        message: `Connection error: ${connectionError.message}`,
-        code: connectionError.code,
-        hint: "This may be due to incorrect Supabase URL or anon key",
-      }
+    if (adminEmails.length === 0) {
+      return false
     }
 
-    // Test authentication
-    console.log("Testing Supabase authentication...")
-    const { data: authData, error: authError } = await supabase.auth.getSession()
+    const supabase = await getActionSupabaseClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
 
-    if (authError) {
-      console.error("Authentication test failed:", authError)
-      return {
-        success: false,
-        error: authError,
-        message: `Authentication error: ${authError.message}`,
-        hint: "This may be due to JWT issues or invalid session data",
-      }
+    if (!session?.user?.email) {
+      return false
     }
 
-    return {
-      success: true,
-      connectionData,
-      authData,
-      message: "Supabase connection and authentication successful",
-    }
+    return adminEmails.includes(session.user.email)
   } catch (error) {
-    console.error("Error testing Supabase connection:", error)
-    return {
-      success: false,
-      error,
-      message: `Unexpected error: ${error instanceof Error ? error.message : String(error)}`,
-      hint: "This may be due to network issues or invalid configuration",
-    }
+    console.error("Error checking admin status:", error)
+    return false
   }
 }
