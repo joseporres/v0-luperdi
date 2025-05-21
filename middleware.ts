@@ -1,13 +1,28 @@
+import { createMiddlewareClient } from "@supabase/auth-helpers-nextjs"
 import { NextResponse } from "next/server"
+
 import type { NextRequest } from "next/server"
-import { isValidSupabaseConfig } from "./lib/supabase/config"
+import type { Database } from "@/lib/supabase/database.types"
 
 export async function middleware(req: NextRequest) {
-  // Simply pass through all requests without attempting to create a Supabase client
-  // We'll check Supabase configuration but not try to create a client here
-  if (!isValidSupabaseConfig()) {
-    console.warn("Invalid Supabase configuration detected in middleware")
+  const res = NextResponse.next()
+  const supabase = createMiddlewareClient<Database>({ req, res })
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  // If the user is not logged in and trying to access a protected route, redirect to login
+  if (!session && (req.nextUrl.pathname.startsWith("/account") || req.nextUrl.pathname.startsWith("/checkout"))) {
+    const redirectUrl = req.nextUrl.clone()
+    redirectUrl.pathname = "/login"
+    redirectUrl.searchParams.set("redirectTo", req.nextUrl.pathname)
+    return NextResponse.redirect(redirectUrl)
   }
 
-  return NextResponse.next()
+  return res
+}
+
+export const config = {
+  matcher: ["/account/:path*", "/checkout/:path*"],
 }

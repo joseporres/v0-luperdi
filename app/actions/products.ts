@@ -140,177 +140,24 @@ export async function getSizes() {
   }
 }
 
-// Create a new product (admin only)
-export async function createProduct(formData: FormData) {
-  try {
-    const supabase = await getActionSupabaseClient()
-
-    // Check if user is admin
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession()
-
-    if (sessionError) {
-      console.error("Session error:", JSON.stringify(sessionError))
-      return { error: "Authentication error" }
-    }
-
-    if (!session?.user) {
-      return { error: "Not authenticated" }
-    }
-
-    // Get form data
-    const name = formData.get("name") as string
-    const description = formData.get("description") as string
-    const price = Number.parseFloat(formData.get("price") as string)
-    const category = formData.get("category") as string
-    const collectionId = formData.get("collection_id") as string
-    const sku = formData.get("sku") as string
-    const imageUrl = formData.get("image_url") as string
-    const isAvailable = formData.get("is_available") === "true"
-
-    // Validate required fields
-    if (!name || !price || !category) {
-      return { error: "Name, price, and category are required" }
-    }
-
-    // Insert product
-    const { data: product, error: productError } = await supabase
-      .from("products")
-      .insert({
-        name,
-        description,
-        price,
-        category,
-        collection_id: collectionId || null,
-        sku,
-        image_url: imageUrl || null,
-        is_available: isAvailable,
-      })
-      .select()
-      .single()
-
-    if (productError) {
-      console.error("Error creating product:", JSON.stringify(productError))
-      return { error: productError.message }
-    }
-
-    // Get sizes to create variants
-    const { data: sizes, error: sizesError } = await supabase.from("sizes").select("*")
-
-    if (sizesError) {
-      console.error("Error fetching sizes:", JSON.stringify(sizesError))
-      return { error: sizesError.message }
-    }
-
-    // Create product variants for each size
-    const variants = sizes.map((size) => ({
-      product_id: product.id,
-      size_id: size.id,
-      inventory_count: 0,
-      sku: sku ? `${sku}-${size.name}` : null,
-      price: null, // Use product price by default
-    }))
-
-    const { error: variantsError } = await supabase.from("product_variants").insert(variants)
-
-    if (variantsError) {
-      console.error("Error creating product variants:", JSON.stringify(variantsError))
-      return { error: variantsError.message }
-    }
-
-    return { success: true, product }
-  } catch (error) {
-    console.error("Exception in createProduct:", error instanceof Error ? error.message : String(error))
-    return { error: "An unexpected error occurred" }
-  }
-}
-
-// Update a product (admin only)
-export async function updateProduct(id: string, formData: FormData) {
-  try {
-    const supabase = await getActionSupabaseClient()
-
-    // Check if user is admin
-    const {
-      data: { session },
-      error: sessionError,
-    } = await supabase.auth.getSession()
-
-    if (sessionError) {
-      console.error("Session error:", JSON.stringify(sessionError))
-      return { error: "Authentication error" }
-    }
-
-    if (!session?.user) {
-      return { error: "Not authenticated" }
-    }
-
-    // Get form data
-    const name = formData.get("name") as string
-    const description = formData.get("description") as string
-    const price = Number.parseFloat(formData.get("price") as string)
-    const category = formData.get("category") as string
-    const collectionId = formData.get("collection_id") as string
-    const sku = formData.get("sku") as string
-    const imageUrl = formData.get("image_url") as string
-    const isAvailable = formData.get("is_available") === "true"
-
-    // Validate required fields
-    if (!name || !price || !category) {
-      return { error: "Name, price, and category are required" }
-    }
-
-    // Update product
-    const { error } = await supabase
-      .from("products")
-      .update({
-        name,
-        description,
-        price,
-        category,
-        collection_id: collectionId || null,
-        sku,
-        image_url: imageUrl || null,
-        is_available: isAvailable,
-      })
-      .eq("id", id)
-
-    if (error) {
-      console.error("Error updating product:", JSON.stringify(error))
-      return { error: error.message }
-    }
-
-    return { success: true }
-  } catch (error) {
-    console.error("Exception in updateProduct:", error instanceof Error ? error.message : String(error))
-    return { error: "An unexpected error occurred" }
-  }
-}
-
-// Update product variant inventory (admin only)
+// Update product variant inventory (system use only, during checkout)
 export async function updateProductVariantInventory(
   variantId: string,
   newCount: number,
-  changeReason = "Manual adjustment",
+  changeReason = "System adjustment",
 ) {
   try {
     const supabase = await getActionSupabaseClient()
 
-    // Check if user is admin
+    // Check if user is authenticated
     const {
       data: { session },
       error: sessionError,
     } = await supabase.auth.getSession()
 
-    if (sessionError) {
-      console.error("Session error:", JSON.stringify(sessionError))
+    if (sessionError || !session?.user) {
+      console.error("Session error:", sessionError || "No session")
       return { error: "Authentication error" }
-    }
-
-    if (!session?.user) {
-      return { error: "Not authenticated" }
     }
 
     // Get current inventory count
@@ -349,7 +196,7 @@ export async function updateProductVariantInventory(
 
     if (logError) {
       console.error("Error logging inventory change:", JSON.stringify(logError))
-      return { error: logError.message }
+      // Continue anyway as the inventory was updated successfully
     }
 
     return { success: true }
