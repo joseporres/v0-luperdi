@@ -1,58 +1,99 @@
+"use client"
+
 import Link from "next/link"
-import { ShoppingBag } from "lucide-react"
-import { Suspense } from "react"
-import { getCartTotals } from "@/lib/cart"
+import { usePathname } from "next/navigation"
+import { cn } from "@/lib/utils"
+import { useState, useEffect } from "react"
+import { ShoppingCart } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
 
-// Create a CartIcon component to handle the async data fetching
-async function CartIcon() {
-  try {
-    const { itemCount } = await getCartTotals()
-
-    return (
-      <Link href="/cart" className="relative">
-        <ShoppingBag className="h-5 w-5" />
-        {itemCount > 0 && (
-          <span className="absolute -top-2 -right-2 bg-black dark:bg-white text-white dark:text-black text-xs font-medium rounded-full h-5 w-5 flex items-center justify-center">
-            {itemCount}
-          </span>
-        )}
-        <span className="sr-only">Cart ({itemCount} items)</span>
-      </Link>
-    )
-  } catch (error) {
-    console.error("Error rendering cart icon:", error)
-    // Fallback UI in case of error
-    return (
-      <Link href="/cart" className="relative">
-        <ShoppingBag className="h-5 w-5" />
-        <span className="sr-only">Cart</span>
-      </Link>
-    )
-  }
+interface MainNavProps {
+  className?: string
 }
 
-export async function MainNav() {
+export function MainNav({ className }: MainNavProps) {
+  const pathname = usePathname()
+  const [cartCount, setCartCount] = useState(0)
+
+  // Client-side cart count fetching
+  useEffect(() => {
+    const fetchCartCount = async () => {
+      try {
+        // Fetch cart count from server
+        const response = await fetch("/api/cart/count")
+        if (response.ok) {
+          const data = await response.json()
+          setCartCount(data.count)
+        }
+      } catch (error) {
+        console.error("Error fetching cart count:", error)
+      }
+    }
+
+    fetchCartCount()
+
+    // Set up an interval to refresh the cart count
+    const interval = setInterval(fetchCartCount, 5000)
+
+    return () => clearInterval(interval)
+  }, [])
+
   return (
-    <nav className="hidden md:flex gap-6">
-      <Link href="/shop" className="text-sm font-medium hover:underline underline-offset-4">
+    <nav className={cn("flex items-center space-x-4 lg:space-x-6", className)}>
+      <Link
+        href="/"
+        className={cn(
+          "text-sm font-medium transition-colors hover:text-primary",
+          pathname === "/" ? "text-primary" : "text-muted-foreground",
+        )}
+      >
+        Home
+      </Link>
+      <Link
+        href="/shop"
+        className={cn(
+          "text-sm font-medium transition-colors hover:text-primary",
+          pathname === "/shop" || pathname.startsWith("/products") ? "text-primary" : "text-muted-foreground",
+        )}
+      >
         Shop
       </Link>
-      <Link href="/collections" className="text-sm font-medium hover:underline underline-offset-4">
+      <Link
+        href="/collections"
+        className={cn(
+          "text-sm font-medium transition-colors hover:text-primary",
+          pathname === "/collections" || pathname.startsWith("/collection") ? "text-primary" : "text-muted-foreground",
+        )}
+      >
         Collections
       </Link>
-      <Link href="/about" className="text-sm font-medium hover:underline underline-offset-4">
+      <Link
+        href="/about"
+        className={cn(
+          "text-sm font-medium transition-colors hover:text-primary",
+          pathname === "/about" ? "text-primary" : "text-muted-foreground",
+        )}
+      >
         About
       </Link>
-      <Suspense
-        fallback={
-          <Link href="/cart" className="relative">
-            <ShoppingBag className="h-5 w-5" />
-            <span className="sr-only">Cart</span>
-          </Link>
-        }
+      <Link
+        href="/cart"
+        className={cn(
+          "text-sm font-medium transition-colors hover:text-primary relative",
+          pathname === "/cart" ? "text-primary" : "text-muted-foreground",
+        )}
       >
-        <CartIcon />
-      </Suspense>
+        <ShoppingCart className="h-5 w-5" />
+        {cartCount > 0 && (
+          <Badge
+            variant="secondary"
+            className="absolute -top-2 -right-2 h-5 w-5 flex items-center justify-center p-0 text-xs"
+          >
+            {cartCount}
+          </Badge>
+        )}
+        <span className="sr-only">Cart</span>
+      </Link>
     </nav>
   )
 }

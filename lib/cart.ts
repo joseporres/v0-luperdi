@@ -1,5 +1,8 @@
+"use server"
+
 import { cookies } from "next/headers"
-import { getProductById } from "@/app/actions/products"
+import { createServerActionClient } from "@supabase/auth-helpers-nextjs"
+import type { Database } from "@/lib/supabase/database.types"
 
 // Cart item type
 export type CartItem = {
@@ -29,21 +32,39 @@ export async function getCart(): Promise<CartItem[]> {
     const cartItemsWithDetails = await Promise.all(
       cartItems.map(async (item) => {
         try {
-          const product = await getProductById(item.productId)
+          const supabase = createServerActionClient<Database>({ cookies })
 
-          if (!product) {
+          // Get product details
+          const { data: product, error } = await supabase
+            .from("products")
+            .select("name, price, image_url")
+            .eq("id", item.productId)
+            .single()
+
+          if (error || !product) {
             return item
           }
 
-          // Find the variant
-          const variant = product.variants?.find((v) => v.id === item.variantId)
+          // Get variant details if available
+          let size = undefined
+          if (item.variantId) {
+            const { data: variant } = await supabase
+              .from("product_variants")
+              .select("sizes(name)")
+              .eq("id", item.variantId)
+              .single()
+
+            if (variant && variant.sizes) {
+              size = variant.sizes.name
+            }
+          }
 
           return {
             ...item,
             name: product.name,
             price: product.price,
             image: product.image_url,
-            size: variant?.sizes?.name,
+            size,
           }
         } catch (error) {
           console.error(`Error fetching details for product ${item.productId}:`, error)
@@ -177,6 +198,45 @@ export async function updateCartItemQuantity(productId: string, variantId: strin
   } catch (error) {
     console.error("Error updating cart item quantity:", error)
     return { error: "Failed to update item quantity" }
+  }
+}
+
+// Update cart item (compatibility function for older code)
+export async function updateCartItem(itemId: string, quantity: number) {
+  try {
+    const cookieStore = cookies()
+    const cartCookie = cookieStore.get("cart")
+
+    if (!cartCookie?.value) {
+      return { success: false, error: "Cart is empty" }
+    }
+
+    // Get current cart
+    const currentCart = JSON.parse(decodeURIComponent(cartCookie.value))
+
+    // Find the item to update by ID
+    // Note: This is a compatibility function for older code that used IDs
+    // In the new implementation, we use productId and variantId
+    const itemIndex = currentCart.findIndex((item: any) => item.id === itemId)
+
+    if (itemIndex === -1) {
+      return { success: false, error: "Item not found in cart" }
+    }
+
+    // Update quantity
+    currentCart[itemIndex].quantity = Math.max(1, quantity)
+
+    // Save updated cart to cookie
+    cookieStore.set("cart", encodeURIComponent(JSON.stringify(currentCart)), {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 30, // 30 days
+      sameSite: "lax",
+    })
+
+    return { success: true, cart: currentCart }
+  } catch (error) {
+    console.error("Error updating cart item:", error)
+    return { error: "Failed to update cart item. Please try again." }
   }
 }
 
