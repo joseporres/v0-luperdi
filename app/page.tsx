@@ -14,7 +14,12 @@ export default async function Home() {
 
   try {
     console.log("Home page: Fetching products...")
-    products = await getProducts()
+    const result = await getProducts({ limit: 3 })
+    products = result.data || []
+    productsError = !!result.error
+    if (result.error) {
+      errorMessage = `Error: ${result.error}`
+    }
     console.log(`Home page: Fetched ${products.length} products`)
   } catch (error) {
     console.error("Error in home page:", error)

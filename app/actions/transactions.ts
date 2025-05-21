@@ -4,7 +4,6 @@ import { cookies } from "next/headers"
 import { createServerActionClient } from "@supabase/auth-helpers-nextjs"
 import type { Database } from "@/lib/supabase/database.types"
 import { clearCart, getCart } from "@/lib/cart"
-import { updateProductVariantInventory } from "@/app/actions/products"
 
 // Helper function to get Supabase client with proper cookie handling
 async function getActionSupabaseClient() {
@@ -69,6 +68,35 @@ async function processPayment(paymentDetails: {
     success: true,
     transactionId: `pay_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`,
     message: "Payment processed successfully",
+  }
+}
+
+// Helper function to update product variant inventory
+// This is moved here to avoid circular dependencies
+async function updateProductVariantInventory(variantId: string, newCount: number, note: string) {
+  try {
+    const supabase = await getActionSupabaseClient()
+
+    // Update the inventory count
+    const { error } = await supabase.from("product_variants").update({ inventory_count: newCount }).eq("id", variantId)
+
+    if (error) {
+      console.error("Error updating inventory:", error)
+      return { error: error.message }
+    }
+
+    // Log the inventory change
+    await supabase.from("inventory_logs").insert({
+      variant_id: variantId,
+      previous_count: null, // We don't track the previous count in this simplified version
+      new_count: newCount,
+      change_reason: note,
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error("Unexpected error updating inventory:", error)
+    return { error: "Failed to update inventory" }
   }
 }
 
